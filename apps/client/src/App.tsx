@@ -3,7 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { useGameStore } from './store/useGameStore';
 import { HomeScreen } from './components/lobby/HomeScreen';
 import { WaitingRoom } from './components/lobby/WaitingRoom';
-import { GamePlaceholder } from './components/game/GamePlaceholder';
+import { GameBoard } from './components/board/GameBoard';
 import { ToastStack } from './components/ui/ToastStack';
 
 function ReconnectingScreen() {
@@ -30,7 +30,7 @@ export default function App() {
   } else if (room.status === 'WAITING') {
     view = <WaitingRoom />;
   } else if (room.status === 'IN_PROGRESS' || room.status === 'FINISHED') {
-    view = <GamePlaceholder />;
+    view = <GameBoard />;
   } else {
     view = <HomeScreen />;
   }

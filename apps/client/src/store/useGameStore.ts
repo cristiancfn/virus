@@ -3,6 +3,7 @@ import type {
   ClientGameStateDTO,
   GameActionErrorPayload,
   GameOverPayload,
+  PlayCardTarget,
   RoomUpdatedPayload,
 } from '@virus/shared';
 import { clearSession, readSession, saveSession, socket } from '../services/socket';
@@ -30,6 +31,10 @@ interface GameStore {
   joinRoom: (roomId: string, nickname: string) => void;
   startGame: () => void;
   requestRematch: () => void;
+  /** Emite `game:action` PLAY_CARD. El servidor valida y resuelve la jugada. */
+  playCard: (cardId: string, target: PlayCardTarget) => void;
+  /** Emite `game:action` DISCARD con 1 a 3 cartas de la mano. */
+  discardCards: (cardIds: string[]) => void;
   leaveRoom: () => void;
   pushError: (error: GameActionErrorPayload) => void;
   dismissError: (id: number) => void;
@@ -135,6 +140,28 @@ export const useGameStore = create<GameStore>((set, get) => ({
   requestRematch: () => {
     const room = get().room;
     if (room) socket.emit('game:rematch', { roomId: room.roomId });
+  },
+
+  playCard: (cardId, target) => {
+    const game = get().game;
+    if (!game) return;
+    socket.emit('game:action', {
+      roomId: game.roomId,
+      playerId: game.me.playerId,
+      actionType: 'PLAY_CARD',
+      payload: { cardId, target },
+    });
+  },
+
+  discardCards: (cardIds) => {
+    const game = get().game;
+    if (!game) return;
+    socket.emit('game:action', {
+      roomId: game.roomId,
+      playerId: game.me.playerId,
+      actionType: 'DISCARD',
+      payload: { cardIds },
+    });
   },
 
   leaveRoom: () => {
