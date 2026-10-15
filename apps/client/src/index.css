@@ -1,0 +1,149 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-ink-950: hsl(165 40% 3%);
+  --color-ink-900: hsl(165 30% 6%);
+  --color-ink-800: hsl(165 22% 10%);
+  --color-virus-400: hsl(152 90% 58%);
+  --color-virus-500: hsl(152 80% 46%);
+  --color-virus-600: hsl(152 75% 36%);
+  --color-toxic-400: hsl(75 90% 58%);
+  --color-pulse-400: hsl(190 90% 60%);
+  --color-danger-400: hsl(350 90% 66%);
+
+  --animate-float: float 9s ease-in-out infinite;
+  --animate-pulse-ring: pulse-ring 2.4s ease-out infinite;
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(30px, -40px, 0) scale(1.08);
+    }
+  }
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 hsl(152 90% 58% / 0.55);
+    }
+    100% {
+      box-shadow: 0 0 0 14px hsl(152 90% 58% / 0);
+    }
+  }
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: hsl(150 20% 94%);
+  background: var(--color-ink-950);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Fondo ambiental: manchas de bioluminiscencia + rejilla sutil */
+.bg-ambient {
+  background:
+    radial-gradient(60rem 40rem at 10% -10%, hsl(152 90% 40% / 0.18), transparent 60%),
+    radial-gradient(50rem 36rem at 100% 10%, hsl(190 90% 45% / 0.14), transparent 60%),
+    radial-gradient(50rem 40rem at 50% 120%, hsl(75 90% 45% / 0.1), transparent 60%),
+    var(--color-ink-950);
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(hsl(152 40% 60% / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(152 40% 60% / 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+.glass {
+  background: linear-gradient(145deg, hsl(165 30% 14% / 0.7), hsl(165 30% 8% / 0.55));
+  border: 1px solid hsl(152 50% 70% / 0.12);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow:
+    0 20px 60px -20px hsl(0 0% 0% / 0.7),
+    inset 0 1px 0 hsl(0 0% 100% / 0.06);
+}
+
+.text-gradient {
+  background: linear-gradient(100deg, var(--color-virus-400), var(--color-toxic-400) 55%, var(--color-pulse-400));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.input-field {
+  width: 100%;
+  border-radius: 0.85rem;
+  border: 1px solid hsl(152 40% 70% / 0.14);
+  background: hsl(165 35% 5% / 0.7);
+  padding: 0.8rem 1rem;
+  color: inherit;
+  outline: none;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.input-field::placeholder {
+  color: hsl(150 10% 50%);
+}
+.input-field:focus {
+  border-color: var(--color-virus-400);
+  box-shadow: 0 0 0 3px hsl(152 90% 58% / 0.18);
+}
+.input-field[aria-invalid='true'] {
+  border-color: var(--color-danger-400);
+  box-shadow: 0 0 0 3px hsl(350 90% 66% / 0.15);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.85rem;
+  padding: 0.8rem 1.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 0.15s,
+    box-shadow 0.25s,
+    opacity 0.2s,
+    background 0.2s;
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn:not(:disabled):active {
+  transform: scale(0.97);
+}
+.btn-primary {
+  color: hsl(165 60% 5%);
+  background: linear-gradient(120deg, var(--color-virus-400), var(--color-toxic-400));
+  box-shadow: 0 8px 28px -8px hsl(152 90% 50% / 0.65);
+}
+.btn-primary:not(:disabled):hover {
+  box-shadow: 0 10px 36px -6px hsl(152 90% 55% / 0.9);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  color: hsl(150 20% 92%);
+  background: hsl(152 30% 60% / 0.08);
+  border: 1px solid hsl(152 40% 70% / 0.16);
+}
+.btn-ghost:not(:disabled):hover {
+  background: hsl(152 30% 60% / 0.16);
+}
