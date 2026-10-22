@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { motion } from 'framer-motion';
-import { DoorOpen, LogIn, Plus, ShieldPlus, Wifi, WifiOff } from 'lucide-react';
+import { DoorOpen, LogIn, Plus, ShieldPlus, Timer, Wifi, WifiOff } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore';
 import type { ConnectionStatus } from '../../store/useGameStore';
 
@@ -11,6 +11,9 @@ const NICKNAME_MAX = 20;
 const ROOM_CODE_LENGTH = 6;
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const ROOM_CODE_REGEX = new RegExp(`^[${ROOM_CODE_ALPHABET}]{${ROOM_CODE_LENGTH}}$`);
+// Tiempo por turno elegible por el Host (SPEC §5.1: entero entre 15 y 120, default 45).
+const TURN_TIMEOUT_OPTIONS = [15, 30, 45, 60, 90, 120] as const;
+const DEFAULT_TURN_TIMEOUT = 45;
 
 function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   const label =
@@ -40,6 +43,7 @@ export function HomeScreen() {
   const [nickname, setNickname] = useState('');
   const [code, setCode] = useState('');
   const [touched, setTouched] = useState(false);
+  const [turnTimeout, setTurnTimeout] = useState<number>(DEFAULT_TURN_TIMEOUT);
 
   const trimmed = nickname.trim();
   const nicknameValid = trimmed.length >= NICKNAME_MIN && trimmed.length <= NICKNAME_MAX;
@@ -50,7 +54,7 @@ export function HomeScreen() {
   const handleCreate = () => {
     setTouched(true);
     if (!nicknameValid || !online) return;
-    createRoom(trimmed);
+    createRoom(trimmed, turnTimeout);
   };
 
   const handleJoin = (e: FormEvent) => {
@@ -112,6 +116,34 @@ export function HomeScreen() {
             Entre {NICKNAME_MIN} y {NICKNAME_MAX} caracteres ({trimmed.length}/{NICKNAME_MAX}).
           </p>
         </div>
+
+        <fieldset className="mt-5">
+          <legend className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-200">
+            <Timer size={15} className="text-virus-400" /> Tiempo por turno (al crear sala)
+          </legend>
+          <div id="turn-timeout-selector" role="radiogroup" className="grid grid-cols-6 gap-1.5">
+            {TURN_TIMEOUT_OPTIONS.map((seconds) => {
+              const active = turnTimeout === seconds;
+              return (
+                <button
+                  key={seconds}
+                  id={`turn-timeout-${seconds}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setTurnTimeout(seconds)}
+                  className={`rounded-xl border px-1 py-2 text-sm font-semibold tabular-nums transition ${
+                    active
+                      ? 'border-virus-400 bg-virus-400/20 text-virus-400 shadow-[0_0_16px_-4px_hsl(152_90%_58%/0.8)]'
+                      : 'border-white/10 bg-black/25 text-slate-300 hover:border-white/25 hover:bg-white/5'
+                  }`}
+                >
+                  {seconds}s
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
 
         <button
           id="create-room-button"

@@ -27,7 +27,8 @@ interface GameStore {
   errors: ErrorToast[];
 
   init: () => void;
-  createRoom: (nickname: string) => void;
+  /** `turnTimeoutSeconds`: entero 15–120 elegido por el Host (SPEC §5.1). */
+  createRoom: (nickname: string, turnTimeoutSeconds: number) => void;
   joinRoom: (roomId: string, nickname: string) => void;
   startGame: () => void;
   requestRematch: () => void;
@@ -35,6 +36,8 @@ interface GameStore {
   playCard: (cardId: string, target: PlayCardTarget) => void;
   /** Emite `game:action` DISCARD con 1 a 3 cartas de la mano. */
   discardCards: (cardIds: string[]) => void;
+  /** Solo Host: emite `game:force_skip` para saltar el turno de un jugador desconectado (SPEC §6). */
+  forceSkipTurn: () => void;
   leaveRoom: () => void;
   pushError: (error: GameActionErrorPayload) => void;
   dismissError: (id: number) => void;
@@ -122,9 +125,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     socket.connect();
   },
 
-  createRoom: (nickname) => {
+  createRoom: (nickname, turnTimeoutSeconds) => {
     pendingNickname = nickname;
-    socket.emit('room:create', { nickname });
+    socket.emit('room:create', { nickname, turnTimeoutSeconds });
   },
 
   joinRoom: (roomId, nickname) => {
@@ -164,7 +167,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
+  forceSkipTurn: () => {
+    const roomId = get().game?.roomId ?? get().room?.roomId;
+    if (roomId) socket.emit('game:force_skip', { roomId });
+  },
+
   leaveRoom: () => {
+    // Aviso explícito al servidor antes de descartar la sesión local (SPEC §6).
+    const { room, game, session } = get();
+    const roomId = room?.roomId ?? game?.roomId ?? session?.roomId;
+    if (roomId && socket.connected) socket.emit('room:leave', { roomId });
     clearSession();
     pendingNickname = null;
     set({ ...NO_ROOM });

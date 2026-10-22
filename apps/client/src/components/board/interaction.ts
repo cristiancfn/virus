@@ -55,9 +55,17 @@ export function computeSlotHighlight(
       const { card } = interaction;
       if (immunized) return 'dim';
       if (card.type === 'MEDICINE') {
+        // SPEC §4.1.3: un virus multicolor sobre mi órgano lo cura cualquier medicina.
+        if (isMine && slot.status === 'INFECTED' && slot.modifiers[0]?.color === 'MULTICOLOR') {
+          return 'valid';
+        }
         return isMine && isColorCompatible(card.color, slot.organCard.color) ? 'valid' : 'dim';
       }
       if (card.type === 'VIRUS') {
+        // SPEC §4.1.2: una vacuna multicolor es vulnerable a cualquier virus (propio o rival).
+        if (slot.status === 'VACCINATED' && slot.modifiers[0]?.color === 'MULTICOLOR') {
+          return 'valid';
+        }
         return isColorCompatible(card.color, slot.organCard.color) ? 'valid' : 'dim';
       }
       if (card.treatmentType === 'ORGAN_THIEF') {

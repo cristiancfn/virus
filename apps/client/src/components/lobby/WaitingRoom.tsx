@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, Copy, Crown, LogOut, Play, UserRound, Users } from 'lucide-react';
+import { Check, Copy, Crown, LogOut, Play, Timer, UserRound, Users } from 'lucide-react';
 import { useGameStore } from '../../store/useGameStore';
 
 const MIN_PLAYERS = 2;
@@ -75,6 +75,12 @@ export function WaitingRoom() {
             {copied ? <Check size={16} className="text-virus-400" /> : <Copy size={16} />}
             {copied ? '¡Copiado!' : 'Copiar código'}
           </button>
+          <span
+            id="turn-timeout-badge"
+            className="inline-flex items-center gap-1.5 rounded-full border border-toxic-400/30 bg-toxic-400/10 px-3 py-1 text-xs font-semibold text-toxic-400"
+          >
+            <Timer size={13} /> {room.config.turnTimeoutSeconds}s por turno
+          </span>
         </div>
 
         <div className="mt-8 flex items-center justify-between">

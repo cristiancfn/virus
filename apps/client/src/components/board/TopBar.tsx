@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Biohazard, Clock, Layers, LogOut, Trash2 } from 'lucide-react';
+import { Biohazard, Clock, Layers, LogOut, SkipForward, Trash2, WifiOff } from 'lucide-react';
 import type { ClientGameStateDTO } from '@virus/shared';
 import { CardView } from './CardView';
 import { nicknameOf } from './cardMeta';
+import { useGameStore } from '../../store/useGameStore';
 
-/** Duración del turno según SPEC §6 (solo para la barra de progreso visual). */
-const TURN_SECONDS = 45;
+/** Duración de turno por defecto (SPEC §6); se usa solo si el servidor no envía `config`. */
+const DEFAULT_TURN_SECONDS = 45;
 
 /** Reloj regresivo fluido: se re-sincroniza con cada `game:state_sync` y descuenta cada segundo. */
 function useCountdown(game: ClientGameStateDTO): number {
@@ -36,7 +37,13 @@ export function TopBar({ game, onLeave }: TopBarProps) {
   const isMyTurn = turnState.isMyTurn;
   const urgent = remaining <= 10 && game.status === 'IN_PROGRESS';
   const currentName = isMyTurn ? 'Tú' : nicknameOf(game, turnState.currentPlayerId);
-  const progress = Math.min(1, remaining / TURN_SECONDS);
+  const turnSeconds = game.config?.turnTimeoutSeconds ?? DEFAULT_TURN_SECONDS;
+  const progress = Math.min(1, remaining / turnSeconds);
+  const forceSkipTurn = useGameStore((s) => s.forceSkipTurn);
+  // SPEC §6: el Host puede saltar el turno de un oponente desconectado.
+  const currentOpponent = game.opponents.find((o) => o.playerId === turnState.currentPlayerId);
+  const canForceSkip =
+    game.status === 'IN_PROGRESS' && game.me.isHost && !!currentOpponent && !currentOpponent.isConnected;
 
   return (
     <header
@@ -76,6 +83,19 @@ export function TopBar({ game, onLeave }: TopBarProps) {
           {isMyTurn ? '¡Es tu turno!' : `Turno de ${currentName}`}
         </span>
       </motion.div>
+
+      {canForceSkip && (
+        <motion.button
+          id="force-skip-button"
+          type="button"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="inline-flex items-center gap-2 rounded-xl border border-danger-400/60 bg-danger-400/15 px-3 py-1.5 text-sm font-semibold text-danger-400 shadow-[0_0_20px_-4px_hsl(350_90%_60%/0.7)] transition hover:bg-danger-400/25"
+          onClick={forceSkipTurn}
+        >
+          <WifiOff size={15} /> Jugador desconectado — Saltar turno <SkipForward size={15} />
+        </motion.button>
+      )}
 
       <div
         id="turn-clock"
