@@ -8,6 +8,11 @@
   },
   "scripts": {
     "build:shared": "pnpm --filter @virus/shared build",
+    "build:server": "pnpm --filter @virus/shared build && pnpm --filter @virus/server build",
+    "build:client": "pnpm --filter @virus/shared build && pnpm --filter @virus/client build",
+    "start:server": "pnpm --filter @virus/server start",
+    "dev:server": "pnpm --filter @virus/server dev",
+    "dev:client": "pnpm --filter @virus/client dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"

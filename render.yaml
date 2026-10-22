@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: virus-server
+    runtime: node
+    plan: free
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm run build:server
+    startCommand: pnpm run start:server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGIN
+        sync: false

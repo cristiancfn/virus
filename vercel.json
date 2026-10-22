@@ -1,0 +1,6 @@
+{
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm run build:client",
+  "outputDirectory": "apps/client/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

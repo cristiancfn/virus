@@ -22,7 +22,7 @@ export function createApp(clientOrigin: string[] | '*'): Express {
   const app = express();
   app.use(cors({ origin: clientOrigin === '*' ? true : clientOrigin }));
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime() });
+    res.status(200).json({ status: 'ok' });
   });
   return app;
 }
@@ -59,7 +59,7 @@ export function createVirusServer(
 }
 
 if (require.main === module) {
-  const port = Number(process.env.PORT ?? 3001);
+  const port = Number(process.env.PORT) || 3001;
   const { httpServer, close } = createVirusServer();
   httpServer.listen(port, () => {
     console.log(`[virus] server listening on port ${port}`);
