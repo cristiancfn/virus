@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, MAX_DISCARD_CARDS } from './constants';
+import {
+  ROOM_CODE_ALPHABET,
+  ROOM_CODE_LENGTH,
+  MAX_DISCARD_CARDS,
+  DEFAULT_CONFIG,
+  MIN_TURN_TIMEOUT_SECONDS,
+  MAX_TURN_TIMEOUT_SECONDS,
+} from './constants';
 
 const nonEmpty = z.string().min(1).max(100);
 
@@ -39,11 +46,27 @@ export const organSlotSchema = z.object({
 
 // ---------- Payloads cliente -> servidor ----------
 
-export const roomCreatePayloadSchema = z.object({ nickname: nicknameSchema }).strict();
+export const turnTimeoutSecondsSchema = z
+  .number()
+  .int()
+  .min(MIN_TURN_TIMEOUT_SECONDS)
+  .max(MAX_TURN_TIMEOUT_SECONDS);
+
+export const roomCreatePayloadSchema = z
+  .object({
+    nickname: nicknameSchema,
+    turnTimeoutSeconds: turnTimeoutSecondsSchema.default(DEFAULT_CONFIG.turnTimeoutSeconds),
+  })
+  .strict();
 
 export const roomJoinPayloadSchema = z
   .object({ roomId: roomIdSchema, nickname: nicknameSchema })
   .strict();
+
+export const LeaveRoomSchema = z.object({ roomId: roomIdSchema }).strict();
+export const ForceSkipSchema = z.object({ roomId: roomIdSchema }).strict();
+export const roomLeavePayloadSchema = LeaveRoomSchema;
+export const gameForceSkipPayloadSchema = ForceSkipSchema;
 
 export const roomReconnectPayloadSchema = z
   .object({ roomId: roomIdSchema, playerId: nonEmpty, sessionToken: nonEmpty })

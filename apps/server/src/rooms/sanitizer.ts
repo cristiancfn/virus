@@ -46,6 +46,7 @@ export function buildClientState(
   return {
     roomId: gameState.roomId,
     status: gameState.status,
+    config: { turnTimeoutSeconds: gameState.config.turnTimeoutSeconds },
     turnState: {
       currentPlayerId: gameState.turnState.currentPlayerId,
       isMyTurn:

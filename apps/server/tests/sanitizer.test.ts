@@ -47,6 +47,16 @@ describe('buildClientState', () => {
     for (const card of state.decks.drawPile) expect(json).not.toContain(`"${card.id}"`);
   });
 
+  it('expone config.turnTimeoutSeconds de la partida (y solo eso) en el DTO', () => {
+    const state = makeGame();
+    expect(buildClientState(state, 'p1', NOW).config).toEqual({ turnTimeoutSeconds: 45 });
+
+    state.config.turnTimeoutSeconds = 100;
+    const dto = buildClientState(state, 'p2', NOW);
+    expect(dto.config).toEqual({ turnTimeoutSeconds: 100 });
+    expect(dto.turnState.turnRemainingSeconds).toBe(100);
+  });
+
   it('calcula isMyTurn según el espectador', () => {
     const state = makeGame();
     expect(buildClientState(state, 'p1', NOW).turnState.isMyTurn).toBe(true);

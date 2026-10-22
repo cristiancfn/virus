@@ -37,6 +37,7 @@ export function createInitialGameState(
   roomId: string,
   players: readonly NewPlayerInput[],
   ctx: EngineContext = defaultContext,
+  options: { turnTimeoutSeconds?: number } = {},
 ): GameState {
   if (
     players.length < DEFAULT_CONFIG.minPlayers ||
@@ -69,7 +70,10 @@ export function createInitialGameState(
     roomId,
     status: 'IN_PROGRESS',
     lastActivityTimestamp: now,
-    config: { ...DEFAULT_CONFIG },
+    config: {
+      ...DEFAULT_CONFIG,
+      turnTimeoutSeconds: options.turnTimeoutSeconds ?? DEFAULT_CONFIG.turnTimeoutSeconds,
+    },
     turnState: {
       currentPlayerId: first.playerId,
       turnOrder: serverPlayers.map((p) => p.playerId),

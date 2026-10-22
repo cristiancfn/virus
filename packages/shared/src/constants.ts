@@ -12,6 +12,9 @@ export const DEFAULT_CONFIG = {
   turnTimeoutSeconds: 45,
 } as const;
 
+export const MIN_TURN_TIMEOUT_SECONDS = 15;
+export const MAX_TURN_TIMEOUT_SECONDS = 120;
+
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const ROOM_CODE_LENGTH = 6;
 

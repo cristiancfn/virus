@@ -1,6 +1,8 @@
 import type { Server, Socket } from 'socket.io';
 import type { ZodTypeAny } from 'zod';
 import {
+  ForceSkipSchema,
+  LeaveRoomSchema,
   gameActionPayloadSchema,
   gameRematchPayloadSchema,
   gameStartPayloadSchema,
@@ -8,6 +10,7 @@ import {
   roomJoinPayloadSchema,
   roomReconnectPayloadSchema,
 } from '@virus/shared';
+import type { DisconnectResult } from '../rooms/roomManager';
 import type {
   ClientToServerEvents,
   GameActionPayload,
@@ -152,6 +155,31 @@ export function createGameHandlers(
 
   manager.addRoomRemovedListener(clearTurnTimer);
 
+  /**
+   * Tras una reconexión/reclamo de asiento: si el temporizador estaba detenido (todos estaban
+   * desconectados), el turno se reinicia desde ahora y se reactiva el timer.
+   */
+  const resumeTurnTimerIfStopped = (room: Room): void => {
+    if (room.state.status === 'IN_PROGRESS' && !turnTimers.has(room.roomId)) {
+      manager.setState(room.roomId, {
+        ...room.state,
+        turnState: { ...room.state.turnState, turnStartedAt: ctx.now() },
+      });
+      scheduleTurnTimer(room);
+    }
+  };
+
+  /** Notifica a la sala tras una salida (`room:leave`) o desconexión. */
+  const afterPlayerDetached = (result: DisconnectResult | null): void => {
+    if (!result || result.roomDeleted) return;
+    const room = manager.getRoom(result.roomId);
+    if (!room) return;
+
+    if (!hasConnectedPlayers(room)) clearTurnTimer(room.roomId);
+    broadcastRoomUpdated(room);
+    if (room.state.status !== 'WAITING') broadcastState(room);
+  };
+
   // -------------------------------------------------------------------------
   // Listeners por socket
   // -------------------------------------------------------------------------
@@ -166,7 +194,11 @@ export function createGameHandlers(
           return emitError(socket, 'ALREADY_IN_ROOM', 'Ya perteneces a una sala.');
         }
 
-        const result = manager.createRoom(payload.nickname, socket.id);
+        const result = manager.createRoom(
+          payload.nickname,
+          socket.id,
+          payload.turnTimeoutSeconds,
+        );
         if (!result.ok) return emitError(socket, result.error.code, result.error.message);
 
         void socket.join(result.room.roomId);
@@ -198,6 +230,28 @@ export function createGameHandlers(
           sessionToken: result.player.sessionToken,
         });
         broadcastRoomUpdated(result.room);
+
+        // Reclamación de asiento en una partida ya creada: sincroniza el estado y el timer.
+        if (result.claimed && result.room.state.status !== 'WAITING') {
+          resumeTurnTimerIfStopped(result.room);
+          broadcastState(result.room);
+        }
+      }),
+    );
+
+    socket.on(
+      'room:leave',
+      guarded(socket, (raw) => {
+        const payload = parse(socket, LeaveRoomSchema, raw);
+        if (!payload) return;
+        const link = manager.getBySocket(socket.id);
+        if (!link || link.room.roomId !== payload.roomId) {
+          return emitError(socket, 'NOT_IN_ROOM', 'No perteneces a esta sala.');
+        }
+
+        const result = manager.leaveRoom(socket.id);
+        void socket.leave(payload.roomId);
+        afterPlayerDetached(result);
       }),
     );
 
@@ -228,14 +282,7 @@ export function createGameHandlers(
         broadcastRoomUpdated(room);
 
         if (room.state.status !== 'WAITING') {
-          // Si el timer estaba detenido (todos desconectados), el turno se reinicia desde ahora.
-          if (room.state.status === 'IN_PROGRESS' && !turnTimers.has(room.roomId)) {
-            manager.setState(room.roomId, {
-              ...room.state,
-              turnState: { ...room.state.turnState, turnStartedAt: ctx.now() },
-            });
-            scheduleTurnTimer(room);
-          }
+          resumeTurnTimerIfStopped(room);
           broadcastState(room);
         }
       }),
@@ -311,16 +358,32 @@ export function createGameHandlers(
       }),
     );
 
+    socket.on(
+      'game:force_skip',
+      guarded(socket, (raw) => {
+        const payload = parse(socket, ForceSkipSchema, raw);
+        if (!payload) return;
+        const link = manager.getBySocket(socket.id);
+        if (!link || link.room.roomId !== payload.roomId) {
+          return emitError(socket, 'NOT_IN_ROOM', 'No perteneces a esta sala.');
+        }
+
+        const check = manager.validateForceSkip(payload.roomId, link.player.playerId);
+        if (!check.ok) return emitError(socket, check.error.code, check.error.message);
+
+        const { room } = check;
+        const result = autoPass(room.state, ctx);
+        if (!result.ok) return emitError(socket, result.error.code, result.error.message);
+
+        manager.setState(room.roomId, result.state);
+        broadcastState(room);
+        scheduleTurnTimer(room);
+      }),
+    );
+
     socket.on('disconnect', () => {
       try {
-        const result = manager.handleDisconnect(socket.id);
-        if (!result || result.roomDeleted) return;
-        const room = manager.getRoom(result.roomId);
-        if (!room) return;
-
-        if (!hasConnectedPlayers(room)) clearTurnTimer(room.roomId);
-        broadcastRoomUpdated(room);
-        if (room.state.status !== 'WAITING') broadcastState(room);
+        afterPlayerDetached(manager.handleDisconnect(socket.id));
       } catch (err) {
         console.error('[sockets] disconnect handler error', err);
       }

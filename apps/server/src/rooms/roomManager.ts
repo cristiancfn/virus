@@ -20,7 +20,9 @@ export type RoomErrorCode =
   | 'NOT_IN_ROOM'
   | 'INVALID_ROOM_STATE'
   | 'NOT_ENOUGH_PLAYERS'
-  | 'ROOM_CODE_EXHAUSTED';
+  | 'ROOM_CODE_EXHAUSTED'
+  | 'NICKNAME_TAKEN'
+  | 'PLAYER_STILL_CONNECTED';
 
 export interface RoomError {
   code: RoomErrorCode;
@@ -48,10 +50,17 @@ export interface RoomManagerOptions {
 export interface DisconnectResult {
   roomId: string;
   playerId: string;
-  /** true si la sala se eliminó inmediatamente (todos desconectados en WAITING). */
+  /** true si la sala se eliminó inmediatamente (sin jugadores restantes en WAITING). */
   roomDeleted: boolean;
+  /** true si el jugador se eliminó de `players` (salida/desconexión en WAITING). */
+  playerRemoved: boolean;
   /** Nuevo host si hubo migración. */
   newHostId: string | null;
+}
+
+/** Normaliza un nickname para comparaciones case-insensitive (SPEC §6). */
+function normalizeNickname(nickname: string): string {
+  return nickname.trim().toLowerCase();
 }
 
 const MAX_CODE_ATTEMPTS = 1000;
@@ -112,6 +121,7 @@ export class RoomManager {
     return {
       roomId: room.roomId,
       status: room.state.status,
+      config: { turnTimeoutSeconds: room.state.config.turnTimeoutSeconds },
       players: room.state.players.map((p) => ({
         playerId: p.playerId,
         nickname: p.nickname,
@@ -154,6 +164,7 @@ export class RoomManager {
   createRoom(
     nickname: string,
     socketId: string,
+    turnTimeoutSeconds: number = DEFAULT_CONFIG.turnTimeoutSeconds,
   ): RoomResult<{ room: Room; player: ServerPlayer }> {
     const roomId = this.generateRoomCode();
     if (!roomId) return fail('ROOM_CODE_EXHAUSTED', 'No se pudo generar un código de sala.');
@@ -166,7 +177,7 @@ export class RoomManager {
         roomId,
         status: 'WAITING',
         lastActivityTimestamp: this.now(),
-        config: { ...DEFAULT_CONFIG },
+        config: { ...DEFAULT_CONFIG, turnTimeoutSeconds },
         turnState: {
           currentPlayerId: '',
           turnOrder: [],
@@ -185,13 +196,30 @@ export class RoomManager {
     return { ok: true, room, player };
   }
 
+  /**
+   * Unión a una sala (SPEC §6). Primero busca un asiento por nickname (case-insensitive):
+   * - conectado: NICKNAME_TAKEN.
+   * - desconectado: reclama el asiento existente (en cualquier estado de la sala).
+   * - inexistente: jugador nuevo, solo si WAITING y hay cupo.
+   */
   joinRoom(
     roomId: string,
     nickname: string,
     socketId: string,
-  ): RoomResult<{ room: Room; player: ServerPlayer }> {
+  ): RoomResult<{ room: Room; player: ServerPlayer; claimed: boolean }> {
     const room = this.rooms.get(roomId);
     if (!room) return fail('ROOM_NOT_FOUND', 'La sala no existe.');
+
+    const wanted = normalizeNickname(nickname);
+    const existing = room.state.players.find((p) => normalizeNickname(p.nickname) === wanted);
+    if (existing) {
+      if (existing.isConnected) {
+        return fail('NICKNAME_TAKEN', 'Ya existe un jugador conectado con ese nombre en la sala');
+      }
+      this.attachSocket(room, existing, socketId);
+      return { ok: true, room, player: existing, claimed: true };
+    }
+
     if (room.state.status !== 'WAITING') {
       return fail('ROOM_NOT_JOINABLE', 'La partida ya comenzó.');
     }
@@ -204,7 +232,33 @@ export class RoomManager {
     room.allDisconnectedSince = null;
     room.state.lastActivityTimestamp = this.now();
     this.socketIndex.set(socketId, { roomId, playerId: player.playerId });
-    return { ok: true, room, player };
+    return { ok: true, room, player, claimed: false };
+  }
+
+  /**
+   * Vincula un socket a un jugador existente (reconexión o reclamo de asiento),
+   * reemplazando el socket anterior y garantizando que haya un Host conectado.
+   * @returns el socketId anterior (si distinto del nuevo) para que el caller lo cierre.
+   */
+  private attachSocket(room: Room, player: ServerPlayer, socketId: string): string | null {
+    const previousSocketId = player.socketId;
+    if (previousSocketId && previousSocketId !== socketId) {
+      this.socketIndex.delete(previousSocketId);
+    }
+    player.socketId = socketId;
+    player.isConnected = true;
+    room.allDisconnectedSince = null;
+    room.state.lastActivityTimestamp = this.now();
+    this.socketIndex.set(socketId, { roomId: room.roomId, playerId: player.playerId });
+
+    // SPEC §6: si nadie con isHost sigue conectado, el primero en (re)conectarse asume el rol.
+    if (room.state.status !== 'WAITING') {
+      const hasConnectedHost = room.state.players.some((p) => p.isHost && p.isConnected);
+      if (!hasConnectedHost) {
+        for (const p of room.state.players) p.isHost = p.playerId === player.playerId;
+      }
+    }
+    return previousSocketId !== socketId ? previousSocketId : null;
   }
 
   /**
@@ -225,34 +279,31 @@ export class RoomManager {
       return fail('INVALID_SESSION', 'Sesión inválida.');
     }
 
-    const previousSocketId = player.socketId;
-    if (previousSocketId && previousSocketId !== socketId) {
-      this.socketIndex.delete(previousSocketId);
-    }
-    player.socketId = socketId;
-    player.isConnected = true;
-    room.allDisconnectedSince = null;
-    room.state.lastActivityTimestamp = this.now();
-    this.socketIndex.set(socketId, { roomId, playerId });
-    return {
-      ok: true,
-      room,
-      player,
-      previousSocketId: previousSocketId !== socketId ? previousSocketId : null,
-    };
+    const previousSocketId = this.attachSocket(room, player, socketId);
+    return { ok: true, room, player, previousSocketId };
   }
 
   // -------------------------------------------------------------------------
-  // Desconexión
+  // Salida y desconexión
   // -------------------------------------------------------------------------
 
   /**
-   * Marca al jugador como desconectado.
-   * - WAITING: migra el host al siguiente jugador conectado; si no queda nadie, elimina la sala.
-   * - Otros estados: conserva al jugador (puede reconectarse) y arranca el contador del GC
-   *   cuando todos están desconectados.
+   * Desconexión de un socket (SPEC §6):
+   * - WAITING: elimina al jugador de `players`; transfiere el host al siguiente jugador
+   *   restante y elimina la sala si queda vacía.
+   * - Otros estados: conserva al jugador con `isConnected = false`, migra el host al primer
+   *   jugador conectado y arranca el contador del GC cuando todos están desconectados.
    */
   handleDisconnect(socketId: string): DisconnectResult | null {
+    return this.detachSocket(socketId);
+  }
+
+  /** `room:leave`: mismas reglas que una desconexión. */
+  leaveRoom(socketId: string): DisconnectResult | null {
+    return this.detachSocket(socketId);
+  }
+
+  private detachSocket(socketId: string): DisconnectResult | null {
     const link = this.socketIndex.get(socketId);
     if (!link) return null;
     this.socketIndex.delete(socketId);
@@ -263,27 +314,80 @@ export class RoomManager {
 
     player.isConnected = false;
     player.socketId = null;
-    const connected = room.state.players.filter((p) => p.isConnected);
-
-    if (connected.length === 0) {
-      if (room.state.status === 'WAITING') {
-        this.deleteRoom(room.roomId);
-        return { roomId: room.roomId, playerId: player.playerId, roomDeleted: true, newHostId: null };
-      }
-      room.allDisconnectedSince = this.now();
-    }
-
     let newHostId: string | null = null;
-    if (room.state.status === 'WAITING' && player.isHost) {
-      const next = connected[0];
-      if (next) {
+
+    if (room.state.status === 'WAITING') {
+      room.state.players = room.state.players.filter((p) => p.playerId !== player.playerId);
+      room.state.lastActivityTimestamp = this.now();
+      const next = room.state.players[0];
+      if (!next) {
+        player.isHost = false;
+        this.deleteRoom(room.roomId);
+        return {
+          roomId: room.roomId,
+          playerId: player.playerId,
+          roomDeleted: true,
+          playerRemoved: true,
+          newHostId: null,
+        };
+      }
+      if (player.isHost) {
         player.isHost = false;
         next.isHost = true;
         newHostId = next.playerId;
       }
+      return {
+        roomId: room.roomId,
+        playerId: player.playerId,
+        roomDeleted: false,
+        playerRemoved: true,
+        newHostId,
+      };
     }
 
-    return { roomId: room.roomId, playerId: player.playerId, roomDeleted: false, newHostId };
+    const connected = room.state.players.filter((p) => p.isConnected);
+    const nextHost = connected[0];
+    if (!nextHost) {
+      room.allDisconnectedSince = this.now();
+    } else if (player.isHost) {
+      player.isHost = false;
+      nextHost.isHost = true;
+      newHostId = nextHost.playerId;
+    }
+
+    return {
+      roomId: room.roomId,
+      playerId: player.playerId,
+      roomDeleted: false,
+      playerRemoved: false,
+      newHostId,
+    };
+  }
+
+  /**
+   * `game:force_skip` (SPEC §6): solo el Host, partida IN_PROGRESS y jugador activo desconectado.
+   * No muta estado; el caller ejecuta el Auto-Pass del motor si el resultado es ok.
+   */
+  validateForceSkip(
+    roomId: string,
+    requesterId: string,
+  ): RoomResult<{ room: Room; targetPlayerId: string }> {
+    const room = this.rooms.get(roomId);
+    if (!room) return fail('ROOM_NOT_FOUND', 'La sala no existe.');
+    const requester = room.state.players.find((p) => p.playerId === requesterId);
+    if (!requester) return fail('NOT_IN_ROOM', 'No perteneces a esta sala.');
+    if (!requester.isHost) return fail('NOT_HOST', 'Solo el anfitrión puede hacerlo.');
+    if (room.state.status !== 'IN_PROGRESS') {
+      return fail('INVALID_ROOM_STATE', 'La partida no está en curso.');
+    }
+    const target = room.state.players.find(
+      (p) => p.playerId === room.state.turnState.currentPlayerId,
+    );
+    if (!target) return fail('INVALID_ROOM_STATE', 'No hay jugador activo.');
+    if (target.isConnected) {
+      return fail('PLAYER_STILL_CONNECTED', 'El jugador del turno sigue conectado.');
+    }
+    return { ok: true, room, targetPlayerId: target.playerId };
   }
 
   // -------------------------------------------------------------------------
@@ -348,6 +452,7 @@ export class RoomManager {
         isConnected: true,
       })),
       ctx ?? { rng: Math.random, now: this.now },
+      { turnTimeoutSeconds: room.state.config.turnTimeoutSeconds },
     );
     room.allDisconnectedSince = null;
     return { ok: true, room };

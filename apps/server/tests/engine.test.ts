@@ -955,3 +955,159 @@ describe('Condición de victoria', () => {
     expect(player(next, 'A').hand).toHaveLength(3);
   });
 });
+
+describe('SPEC §4.1 - vulnerabilidad de la Medicina y el Virus Multicolor', () => {
+  describe('Medicina MULTICOLOR apilada (VACCINATED)', () => {
+    it.each(['RED', 'GREEN', 'BLUE', 'YELLOW', 'MULTICOLOR'] as const)(
+      'un VIRUS %s destruye la vacuna multicolor de un órgano rojo',
+      (color) => {
+        const v = virus(color);
+        const med = medicine('MULTICOLOR', 'med-multi');
+        const state = mkState([
+          { id: 'A', hand: handWith(v) },
+          { id: 'B', body: [slot('r', 'RED', [med])] },
+        ]);
+        expect(slotOf(state, 'B', 'r')!.status).toBe('VACCINATED');
+
+        const next = ok(playCard(state, 'A', v, { targetPlayerId: 'B', targetSlotId: 'r' }));
+        const target = slotOf(next, 'B', 'r')!;
+        expect(target.status).toBe('HEALTHY');
+        expect(target.modifiers).toEqual([]);
+        expect(discardIds(next)).toEqual(expect.arrayContaining(['med-multi', v.id]));
+      },
+    );
+
+    it('un VIRUS de cualquier color también funciona sobre un órgano MULTICOLOR vacunado', () => {
+      const v = virus('BLUE');
+      const state = mkState([
+        { id: 'A', hand: handWith(v) },
+        { id: 'B', body: [slot('m', 'MULTICOLOR', [medicine('MULTICOLOR', 'med-multi')])] },
+      ]);
+      const next = ok(playCard(state, 'A', v, { targetPlayerId: 'B', targetSlotId: 'm' }));
+      expect(slotOf(next, 'B', 'm')!.status).toBe('HEALTHY');
+    });
+
+    it('también puede dirigirse al propio cuerpo del jugador activo', () => {
+      const v = virus('GREEN');
+      const state = mkState([
+        { id: 'A', hand: handWith(v), body: [slot('r', 'RED', [medicine('MULTICOLOR')])] },
+        { id: 'B' },
+      ]);
+      const next = ok(playCard(state, 'A', v, { targetPlayerId: 'A', targetSlotId: 'r' }));
+      expect(slotOf(next, 'A', 'r')!.status).toBe('HEALTHY');
+    });
+
+    it('control: una medicina de color base NO es vulnerable a virus de otro color', () => {
+      const v = virus('BLUE');
+      const state = mkState([
+        { id: 'A', hand: handWith(v) },
+        { id: 'B', body: [slot('r', 'RED', [medicine('RED')])] },
+      ]);
+      expect(
+        errorCode(playCard(state, 'A', v, { targetPlayerId: 'B', targetSlotId: 'r' })),
+      ).toBe('INCOMPATIBLE_COLOR');
+    });
+
+    it('un órgano IMMUNIZED (2 medicinas) sigue siendo inmune aunque tenga medicina multicolor', () => {
+      const v = virus('RED');
+      const state = mkState([
+        { id: 'A', hand: handWith(v) },
+        {
+          id: 'B',
+          body: [slot('r', 'RED', [medicine('MULTICOLOR'), medicine('RED')])],
+        },
+      ]);
+      expect(
+        errorCode(playCard(state, 'A', v, { targetPlayerId: 'B', targetSlotId: 'r' })),
+      ).toBe('ORGAN_IMMUNIZED');
+    });
+
+    it('inmunizar sobre una vacuna multicolor exige compatibilidad base con el órgano', () => {
+      const bad = medicine('BLUE');
+      const good = medicine('RED');
+      const base = () => [slot('r', 'RED', [medicine('MULTICOLOR')])];
+
+      const s1 = mkState([{ id: 'A', hand: handWith(bad), body: base() }, { id: 'B' }]);
+      expect(
+        errorCode(playCard(s1, 'A', bad, { targetPlayerId: 'A', targetSlotId: 'r' })),
+      ).toBe('INCOMPATIBLE_COLOR');
+
+      const s2 = mkState([{ id: 'A', hand: handWith(good), body: base() }, { id: 'B' }]);
+      const next = ok(playCard(s2, 'A', good, { targetPlayerId: 'A', targetSlotId: 'r' }));
+      expect(slotOf(next, 'A', 'r')!.status).toBe('IMMUNIZED');
+    });
+  });
+
+  describe('Virus MULTICOLOR apilado (INFECTED)', () => {
+    it.each(['RED', 'GREEN', 'BLUE', 'YELLOW', 'MULTICOLOR'] as const)(
+      'una MEDICINA %s cura el virus multicolor de un órgano rojo propio',
+      (color) => {
+        const m = medicine(color);
+        const vir = virus('MULTICOLOR', 'vir-multi');
+        const state = mkState([
+          { id: 'A', hand: handWith(m), body: [slot('r', 'RED', [vir])] },
+          { id: 'B' },
+        ]);
+        expect(slotOf(state, 'A', 'r')!.status).toBe('INFECTED');
+
+        const next = ok(playCard(state, 'A', m, { targetPlayerId: 'A', targetSlotId: 'r' }));
+        const target = slotOf(next, 'A', 'r')!;
+        expect(target.status).toBe('HEALTHY');
+        expect(target.modifiers).toEqual([]);
+        expect(discardIds(next)).toEqual(expect.arrayContaining(['vir-multi', m.id]));
+      },
+    );
+
+    it('control: un virus de color base solo se cura con medicina compatible', () => {
+      const m = medicine('BLUE');
+      const state = mkState([
+        { id: 'A', hand: handWith(m), body: [slot('r', 'RED', [virus('RED')])] },
+        { id: 'B' },
+      ]);
+      expect(
+        errorCode(playCard(state, 'A', m, { targetPlayerId: 'A', targetSlotId: 'r' })),
+      ).toBe('INCOMPATIBLE_COLOR');
+    });
+
+    it('la medicina solo puede jugarse en el cuerpo del dueño, aunque el virus sea multicolor', () => {
+      const m = medicine('BLUE');
+      const state = mkState([
+        { id: 'A', hand: handWith(m) },
+        { id: 'B', body: [slot('r', 'RED', [virus('MULTICOLOR')])] },
+      ]);
+      expect(
+        errorCode(playCard(state, 'A', m, { targetPlayerId: 'B', targetSlotId: 'r' })),
+      ).toBe('INVALID_TARGET');
+    });
+
+    it('extirpar con un segundo virus exige compatibilidad base con el órgano', () => {
+      const bad = virus('BLUE');
+      const good = virus('RED', 'vir-red');
+      const base = () => [slot('r', 'RED', [virus('MULTICOLOR', 'vir-multi')])];
+
+      const s1 = mkState([{ id: 'A', hand: handWith(bad) }, { id: 'B', body: base() }]);
+      expect(
+        errorCode(playCard(s1, 'A', bad, { targetPlayerId: 'B', targetSlotId: 'r' })),
+      ).toBe('INCOMPATIBLE_COLOR');
+
+      const s2 = mkState([{ id: 'A', hand: handWith(good) }, { id: 'B', body: base() }]);
+      const next = ok(playCard(s2, 'A', good, { targetPlayerId: 'B', targetSlotId: 'r' }));
+      expect(player(next, 'B').body).toHaveLength(0);
+      expect(discardIds(next)).toEqual(
+        expect.arrayContaining(['organ-r', 'vir-multi', 'vir-red']),
+      );
+    });
+  });
+
+  it('turnTimeoutSeconds se propaga a la configuración de la partida', () => {
+    const players = [
+      { playerId: 'A', sessionToken: 'a', socketId: null, nickname: 'A', isHost: true },
+      { playerId: 'B', sessionToken: 'b', socketId: null, nickname: 'B', isHost: false },
+    ];
+    expect(createInitialGameState('ROOM01', players, ctx).config.turnTimeoutSeconds).toBe(45);
+    expect(
+      createInitialGameState('ROOM01', players, ctx, { turnTimeoutSeconds: 90 }).config
+        .turnTimeoutSeconds,
+    ).toBe(90);
+  });
+});

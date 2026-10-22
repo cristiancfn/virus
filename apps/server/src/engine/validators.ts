@@ -61,13 +61,39 @@ export function computeOrganStatus(modifiers: readonly Card[]): OrganStatus {
   return 'HEALTHY';
 }
 
-/** SPEC §4.1: compatibilidad de color entre un modificador y un órgano. */
+/** SPEC §4.1 (punto 1): compatibilidad base de color entre un modificador y el órgano. */
 export function isColorCompatible(modifier: Card, slot: OrganSlot): boolean {
   return (
     modifier.color === slot.organCard.color ||
     modifier.color === 'MULTICOLOR' ||
     slot.organCard.color === 'MULTICOLOR'
   );
+}
+
+/**
+ * SPEC §4.1 (puntos 1-3): compatibilidad de un modificador al jugarse sobre un OrganSlot,
+ * incluyendo las vulnerabilidades del Virus y la Medicina Multicolor.
+ * - Medicina MULTICOLOR apilada (VACCINATED): cualquier VIRUS es válido.
+ * - Virus MULTICOLOR apilado (INFECTED): cualquier MEDICINE es válida.
+ */
+export function canModifierTargetSlot(modifier: Card, slot: OrganSlot): boolean {
+  if (
+    modifier.type === 'VIRUS' &&
+    slot.status === 'VACCINATED' &&
+    slot.modifiers[0]?.type === 'MEDICINE' &&
+    slot.modifiers[0].color === 'MULTICOLOR'
+  ) {
+    return true;
+  }
+  if (
+    modifier.type === 'MEDICINE' &&
+    slot.status === 'INFECTED' &&
+    slot.modifiers[0]?.type === 'VIRUS' &&
+    slot.modifiers[0].color === 'MULTICOLOR'
+  ) {
+    return true;
+  }
+  return isColorCompatible(modifier, slot);
 }
 
 /** Un órgano cuenta para la victoria si NO está infectado (SPEC §1). */
@@ -196,7 +222,7 @@ function validateVirus(state: GameState, card: Card, target: PlayCardTarget): Va
   const owner = findPlayer(state, target.targetPlayerId);
   const slot = owner ? findSlot(owner, target.targetSlotId) : undefined;
   if (!owner || !slot) return fail('INVALID_TARGET', 'Órgano objetivo inexistente.');
-  if (!isColorCompatible(card, slot)) {
+  if (!canModifierTargetSlot(card, slot)) {
     return fail('INCOMPATIBLE_COLOR', 'El virus no es compatible con ese órgano.');
   }
   if (slot.status === 'IMMUNIZED') {
@@ -218,7 +244,7 @@ function validateMedicine(
   }
   const slot = findSlot(player, target.targetSlotId);
   if (!slot) return fail('INVALID_TARGET', 'Órgano objetivo inexistente.');
-  if (!isColorCompatible(card, slot)) {
+  if (!canModifierTargetSlot(card, slot)) {
     return fail('INCOMPATIBLE_COLOR', 'La medicina no es compatible con ese órgano.');
   }
   if (slot.status === 'IMMUNIZED') {

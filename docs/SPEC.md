@@ -90,7 +90,7 @@ export interface GameState {
     minPlayers: number;         // Default: 2
     maxPlayers: number;         // Default: 6
     organsToWin: number;        // Default: 4
-    turnTimeoutSeconds: number; // Default: 45
+    turnTimeoutSeconds: number; // Parametrizable por el Host al crear sala: entre 15 y 120 (Default: 45)
   };
   turnState: {
     currentPlayerId: string;
@@ -124,6 +124,9 @@ export interface PublicOpponentDTO {
 export interface ClientGameStateDTO {
   roomId: string;
   status: RoomStatus;
+  config: {
+    turnTimeoutSeconds: number;
+  };
   turnState: {
     currentPlayerId: string;
     isMyTurn: boolean;
@@ -153,20 +156,22 @@ export interface ClientGameStateDTO {
 
 ## 4. Máquina de Estados de `OrganSlot` y Reglas de Jugadas
 
-### 4.1. Compatibilidad de Colores
-Una carta modificadora (`VIRUS` o `MEDICINE`) es compatible con un `OrganSlot` si y solo si:
-- `modifier.color === organSlot.organCard.color`
-- O `modifier.color === 'MULTICOLOR'`
-- O `organSlot.organCard.color === 'MULTICOLOR'`
+### 4.1. Compatibilidad de Colores y Modificadores Multicolor
+1. **Compatibilidad Base con el Órgano:** Una carta modificadora (`VIRUS` o `MEDICINE`) es compatible con el órgano base de un `OrganSlot` si y solo si:
+   - `modifier.color === organSlot.organCard.color`
+   - O `modifier.color === 'MULTICOLOR'`
+   - O `organSlot.organCard.color === 'MULTICOLOR'`
+2. **Vulnerabilidad de la Medicina Multicolor:** Si un `OrganSlot` está en estado `'VACCINATED'` y su medicina apilada (`modifiers[0]`) tiene `color === 'MULTICOLOR'`, **cualquier carta `VIRUS` de cualquier color** (`RED`, `GREEN`, `BLUE`, `YELLOW` o `MULTICOLOR`) es válida sobre ese `OrganSlot` para destruir dicha vacuna multicolor.
+3. **Vulnerabilidad del Virus Multicolor:** Si un `OrganSlot` está en estado `'INFECTED'` y su virus apilado (`modifiers[0]`) tiene `color === 'MULTICOLOR'`, **cualquier carta `MEDICINE` de cualquier color** (`RED`, `GREEN`, `BLUE`, `YELLOW` o `MULTICOLOR`) jugada por el dueño del órgano es válida sobre ese `OrganSlot` para curar/eliminar dicho virus multicolor. *(Nota: Para extirpar ese órgano añadiendo un segundo virus, o para inmunizar un órgano vacunado añadiendo una segunda medicina, la segunda carta sí debe cumplir la Compatibilidad Base con el `organCard` descrita en el punto 1).*
 
 ### 4.2. Transiciones de Estado en `OrganSlot`
-1. **Aplicar `VIRUS` sobre un `OrganSlot` (propio o rival, aunque normalmente rival):**
+1. **Aplicar `VIRUS` sobre un `OrganSlot` (propio o rival, cumpliendo la sección 4.1):**
    - Si `status === 'HEALTHY'`: se añade el virus a `modifiers`. El estado pasa a `'INFECTED'`.
    - Si `status === 'VACCINATED'`: la medicina que estaba en `modifiers` y el nuevo virus se envían a `discardPile`. `modifiers` queda vacío (`[]`) y el estado pasa a `'HEALTHY'`.
    - Si `status === 'INFECTED'`: el `organCard`, el virus previo y el nuevo virus se envían a `discardPile`. El `OrganSlot` se elimina del arreglo `body` del jugador.
    - Si `status === 'IMMUNIZED'`: **Jugada inválida**. Un órgano inmunizado no puede ser objetivo de virus.
 
-2. **Aplicar `MEDICINE` sobre un `OrganSlot` (exclusivamente en el `body` propio):**
+2. **Aplicar `MEDICINE` sobre un `OrganSlot` (exclusivamente en el `body` propio, cumpliendo la sección 4.1):**
    - Si `status === 'HEALTHY'`: se añade la medicina a `modifiers`. El estado pasa a `'VACCINATED'`.
    - Si `status === 'INFECTED'`: el virus que estaba en `modifiers` y la nueva medicina se envían a `discardPile`. `modifiers` queda vacío (`[]`) y el estado pasa a `'HEALTHY'`.
    - Si `status === 'VACCINATED'`: se añade la segunda medicina a `modifiers`. El estado pasa a `'IMMUNIZED'`.
@@ -194,7 +199,7 @@ Al jugarse cualquier carta de tratamiento, la carta de tratamiento en sí siempr
    - **Restricciones:**
      - Debe realizarse al menos 1 transferencia válida (no se puede jugar `CONTAGION` sin mover ningún virus, aunque sí se puede descartar en modo descarte).
      - Cada `fromSlotId` debe pertenecer al jugador activo y tener `status === 'INFECTED'`.
-     - Cada `toSlotId` debe pertenecer a otro jugador, tener `status === 'HEALTHY'` (estrictamente libre: sin virus ni vacunas) y ser de un color compatible con el virus que se le transfiere.
+     - Cada `toSlotId` debe pertenecer a otro jugador, tener `status === 'HEALTHY'` (estrictamente libre: sin virus ni vacunas) y ser de un color compatible con el virus que se le transfiere (`virus.color === toSlot.organCard.color || virus.color === 'MULTICOLOR' || toSlot.organCard.color === 'MULTICOLOR'`).
      - No se pueden enviar dos virus al mismo `toSlotId` dentro del mismo `CONTAGION` (porque tras recibir el primero deja de estar `HEALTHY`).
    - **Efecto:** Por cada transferencia, el virus sale de `fromSlot.modifiers` (dejando al órgano propio `HEALTHY`) y entra a `toSlot.modifiers` (dejando al órgano rival `INFECTED`).
 
@@ -213,15 +218,17 @@ Al jugarse cualquier carta de tratamiento, la carta de tratamiento en sí siempr
 
 ### 5.1. Catálogo de Eventos
 - **Cliente → Servidor:**
-  - `room:create`: `{ nickname: string }`
+  - `room:create`: `{ nickname: string, turnTimeoutSeconds?: number }` (Entero entre 15 y 120, default: `45`)
   - `room:join`: `{ roomId: string, nickname: string }`
+  - `room:leave`: `{ roomId: string }`
   - `room:reconnect`: `{ roomId: string, playerId: string, sessionToken: string }`
   - `game:start`: `{ roomId: string }`
   - `game:action`: `GameActionPayload` (ver sección 5.2)
+  - `game:force_skip`: `{ roomId: string }` (Exclusivo para el Host cuando el jugador del turno actual tiene `isConnected === false`)
   - `game:rematch`: `{ roomId: string }`
 - **Servidor → Cliente:**
   - `room:joined_success`: `{ roomId: string, playerId: string, sessionToken: string }`
-  - `room:updated`: `{ roomId: string, status: RoomStatus, players: { playerId: string, nickname: string, isHost: boolean, isConnected: boolean }[] }`
+  - `room:updated`: `{ roomId: string, status: RoomStatus, config: { turnTimeoutSeconds: number }, players: { playerId: string, nickname: string, isHost: boolean, isConnected: boolean }[] }`
   - `game:state_sync`: `ClientGameStateDTO`
   - `game:action_error`: `{ code: string, message: string }`
   - `game:over`: `{ winnerId: string, winnerNickname: string, finalState: ClientGameStateDTO }`
@@ -274,13 +281,20 @@ Cada vez que el servidor procesa `game:action`:
    - **Reciclaje de Mazo:** Si `drawPile.length < needed`, robar primero las que quedan en `drawPile`, tomar todo `discardPile`, barajarlo con el algoritmo *Fisher-Yates*, asignarlo a `drawPile` (vaciando `discardPile`) y terminar de robar las cartas faltantes.
 5. **Verificación de Victoria:** Recorrer todos los jugadores en `players`. Si algún jugador tiene `4` o más `OrganSlot` en su `body` cuyo `status` sea `'HEALTHY'`, `'VACCINATED'` o `'IMMUNIZED'`, asignar `winnerId = player.playerId`, cambiar `status = 'FINISHED'`, detener el temporizador de turno y emitir `game:over` y `game:state_sync`.
 6. **Avance de Turno y Salto por Guante de Látex:** Si no hay ganador, avanzar `currentPlayerId` al siguiente jugador en `turnOrder`.
-   - Si el nuevo jugador activo tiene `hand.length === 0`, repartirle inmediatamente 3 cartas desde `drawPile`, registrar `lastActionLog` y volver a avanzar `currentPlayerId` al siguiente jugador (en bucle por si varios jugadores seguidos tienen 0 cartas). Reiniciar el temporizador de 45 segundos y emitir `game:state_sync` sanitizado a cada cliente.
+   - Si el nuevo jugador activo tiene `hand.length === 0`, repartirle inmediatamente 3 cartas desde `drawPile`, registrar `lastActionLog` y volver a avanzar `currentPlayerId` al siguiente jugador (en bucle por si varios jugadores seguidos tienen 0 cartas). Reiniciar el temporizador de `config.turnTimeoutSeconds` y emitir `game:state_sync` sanitizado a cada cliente.
 
 ---
 
-## 6. Gestión de Salas, Temporizadores y Limpieza en Memoria
+## 6. Gestión de Salas, Reconexión por Nickname, Temporizadores y Limpieza
 
 - **Generador de Códigos de Sala:** Cadenas aleatorias de 6 caracteres usando exclusivamente el alfabeto `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (sin `0`, `O`, `1`, `I`, `L`).
-- **Sucesión de Host:** Si el jugador con `isHost === true` se desconecta mientras la sala está en `WAITING`, se transfiere `isHost = true` al siguiente jugador conectado. Si todos se desconectan en `WAITING`, la sala se elimina inmediatamente.
-- **Temporizador de Turno (Auto-Pass de 45s):** Al iniciar cada turno se programa un timeout de 45 segundos. Si expira sin jugada válida, el servidor descarta automáticamente `player.hand[0]`, le roba 1 carta para dejarlo con 3 y avanza el turno registrando `actionType: 'AUTO_PASS'`.
+- **Salida y Desconexión en Estado `WAITING`:** Mientras la sala está en `WAITING`, si un jugador emite `room:leave` o se desconecta (`disconnect`), **se elimina inmediatamente** del arreglo `players` de la sala para no dejar jugadores fantasma desconectados en la sala de espera. Si era el Host (`isHost === true`), se transfiere `isHost = true` al siguiente jugador restante. Si la sala queda sin jugadores, se elimina del `Map`.
+- **Salida en Partida en Curso (`IN_PROGRESS`):** Si un jugador emite `room:leave` o se desconecta durante una partida `IN_PROGRESS`, su registro se conserva con `isConnected = false` para no romper el ciclo de turnos ni perder sus cartas/órganos. Si el jugador que se desconecta en `IN_PROGRESS` tenía `isHost === true`, el rol `isHost = true` se transfiere dinámicamente al primer jugador que continúe con `isConnected === true` para que la sala nunca quede sin un Host activo capaz de gestionar la partida; si todos se desconectan, el primero en reconectarse asume `isHost = true`.
+- **Reclamación de Asiento por Nickname (Case-Insensitive) en `room:join`:** Cuando un usuario intenta unirse a una sala mediante `room:join` (tanto en estado `WAITING` como en `IN_PROGRESS`), el servidor busca primero si en `gameState.players` existe un jugador cuyo `nickname` coincida ignorando mayúsculas/minúsculas y espacios extremos (`p.nickname.trim().toLowerCase() === nickname.trim().toLowerCase()`):
+  - Si existe y tiene `isConnected === true`: rechaza la unión con `game:action_error` (`NICKNAME_TAKEN`, *"Ya existe un jugador conectado con ese nombre en la sala"*).
+  - Si existe y tiene `isConnected === false`: **Reclama el asiento existente** (sin duplicar al usuario ni rechazar con error de partida ya iniciada). El servidor actualiza su `socketId`, marca `isConnected = true`, le emite `room:joined_success` con el `playerId` y `sessionToken` de ese asiento, emite `room:updated` a la sala y, si la partida está en `IN_PROGRESS` o `FINISHED`, le emite su `game:state_sync` (reactivando el temporizador de turno si todos estaban desconectados).
+  - Si NO existe ningún jugador con ese `nickname`: procede como jugador nuevo (permitido únicamente si `status === 'WAITING'` y hay menos de 6 jugadores).
+- **Temporizador de Turno Parametrizable (`turnTimeoutSeconds`) y Salto Forzado por el Host (`game:force_skip`):**
+  - Al iniciar cada turno se programa un timeout de `gameState.config.turnTimeoutSeconds` (entre 15 y 120 segundos, default 45s). Si expira sin jugada válida, el servidor ejecuta el **Auto-Pass**: descarta automáticamente `player.hand[0]` (o repone 3 cartas si tenía 0), roba 1 carta y avanza el turno registrando `actionType: 'AUTO_PASS'`.
+  - Si el jugador del turno actual (`turnState.currentPlayerId`) tiene `isConnected === false`, el jugador con `isHost === true` puede emitir `game:force_skip` en cualquier momento para ejecutar el **Auto-Pass** de ese jugador desconectado de inmediato sin esperar a que expire el temporizador.
 - **Garbage Collector:** Un `setInterval` cada 5 minutos elimina del `Map` de salas aquellas que lleven más de 10 minutos con todos los jugadores desconectados (`isConnected === false`) o más de 30 minutos sin cambios en `lastActivityTimestamp` estando en `WAITING` o `FINISHED`.

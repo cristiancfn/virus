@@ -85,6 +85,9 @@ export interface PublicOpponentDTO {
 export interface ClientGameStateDTO {
   roomId: string;
   status: RoomStatus;
+  config: {
+    turnTimeoutSeconds: number;
+  };
   turnState: {
     currentPlayerId: string;
     isMyTurn: boolean;
@@ -150,10 +153,17 @@ export type GameActionPayload =
 
 export interface RoomCreatePayload {
   nickname: string;
+  turnTimeoutSeconds?: number;
 }
 export interface RoomJoinPayload {
   roomId: string;
   nickname: string;
+}
+export interface RoomLeavePayload {
+  roomId: string;
+}
+export interface GameForceSkipPayload {
+  roomId: string;
 }
 export interface RoomReconnectPayload {
   roomId: string;
@@ -176,6 +186,9 @@ export interface RoomJoinedSuccessPayload {
 export interface RoomUpdatedPayload {
   roomId: string;
   status: RoomStatus;
+  config: {
+    turnTimeoutSeconds: number;
+  };
   players: {
     playerId: string;
     nickname: string;
@@ -198,9 +211,11 @@ export interface GameOverPayload {
 export interface ClientToServerEvents {
   'room:create': (payload: RoomCreatePayload) => void;
   'room:join': (payload: RoomJoinPayload) => void;
+  'room:leave': (payload: { roomId: string }) => void;
   'room:reconnect': (payload: RoomReconnectPayload) => void;
   'game:start': (payload: GameStartPayload) => void;
   'game:action': (payload: GameActionPayload) => void;
+  'game:force_skip': (payload: { roomId: string }) => void;
   'game:rematch': (payload: GameRematchPayload) => void;
 }
 
